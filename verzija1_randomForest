@@ -1,0 +1,138 @@
+# Imports
+import os
+import cv2
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, cross_val_predict, StratifiedKFold
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_curve, auc
+from sklearn.metrics import roc_auc_score
+from scipy.stats import skew
+
+#ground truth#############################################################
+
+ground_truth_path = "C:/Users/anaje/Documents/avcaffe/AVCAffe/codes/downloader/data/ground_truths/frustration.txt"
+ground_truth_vector = []
+
+with open(ground_truth_path, 'r', encoding='utf-8') as file:
+    for line in file:
+        parts = line.strip().split(',')
+        value = float(parts[1]) 
+
+        if value < 11.0:
+            ground_truth_vector.append(0)
+        else:
+            ground_truth_vector.append(1)
+
+#dataset#########################################################
+
+# notri so .mp4 datoteke
+folder_path = "C:/Users/anaje/Documents/avcaffe/AVCAffe/codes/downloader/data/videos/per_participant_per_task"
+data = []
+
+frame_sample_rate = 10
+
+# Walk through the folder and subfolders
+for root, dirs, files in os.walk(folder_path):
+    for file in files:
+        if file.endswith('.mp4'):
+            video_path = os.path.join(root, file)
+
+            # Extract last folder and file name to form a string
+            folder_name = os.path.basename(os.path.dirname(video_path))
+            file_name = os.path.basename(video_path)
+            video_id = f"{folder_name}/{file_name}"  # Combine folder name and file name
+
+            cap = cv2.VideoCapture(video_path)
+
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_rate = int(cap.get(cv2.CAP_PROP_FPS))
+
+            mean_values = []
+            std_values = []
+            skewness_values = []
+            
+            # Process the video file (e.g., read frames)
+            for frame_num in range(0, frame_count, frame_sample_rate):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num) #preberi vsakega 10.
+                ret, frame = cap.read()
+
+                if not ret:
+                    break
+                frame = cv2.resize(frame, (128, 72))
+
+                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+                mean, stddev = cv2.meanStdDev(gray_frame)
+                mean_values.append(mean[0][0])
+                std_values.append(stddev[0][0])
+
+                skewness_val = skew(gray_frame.flatten())
+                skewness_values.append(skewness_val) 
+                
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+            cap.release()
+
+            # Return average features for the entire video (or a summary)
+            video_mean = np.mean(mean_values)
+            video_std = np.mean(std_values)
+            video_skewness = np.mean(skewness_values)
+
+            data.append({
+                'id': video_id,
+                'mean': video_mean,
+                'std': video_std,
+                'skew': video_skewness
+            })
+
+            print(f"id: {video_id}, mean: {video_mean:.2f}, std: {video_std:.2f}, skew: {video_skewness:.2f}")
+
+cv2.destroyAllWindows()
+
+df = pd.DataFrame(data)
+
+# Save the DataFrame to a CSV file
+output_file = 'output_data_2704.csv'
+df.to_csv(output_file, index=False)
+print("Extracted features saved to", output_file)
+
+X = df[['mean', 'std', 'skew']].values
+y = np.array(ground_truth_vector)
+
+# 2. Initialize the Random Forest Classifier
+clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+
+# 3. Perform 5-fold Cross-Validation
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+# Get cross-validated predictions (labels)
+cv_predictions = cross_val_predict(clf, X, y, cv=cv)
+
+# Get cross-validated predicted probabilities (needed for ROC curve)
+cv_probabilities = cross_val_predict(clf, X, y, cv=cv, method='predict_proba')
+
+# 4. Compute Precision, Recall, and F1-score
+precision = precision_score(y, cv_predictions, average='weighted')
+recall = recall_score(y, cv_predictions, average='weighted')
+f1 = f1_score(y, cv_predictions, average='weighted')
+
+print(f'Precision (5-fold CV): {precision:.2f}')
+print(f'Recall (5-fold CV): {recall:.2f}')
+print(f'F1-score (5-fold CV): {f1:.2f}')
+
+# 5. Compute ROC Curve using cross-validation probabilities (one-vs-rest approach)
+fpr, tpr, _ = roc_curve(y, cv_probabilities[:, 1])
+roc_auc = auc(fpr, tpr)
+
+# 6. Plot the ROC Curve
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='blue', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='gray', linestyle='--')  # Diagonal line for reference
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve for Random Forest Classifier (5-Fold CV)')
+plt.legend(loc='lower right')
+plt.show()
