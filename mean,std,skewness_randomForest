@@ -102,6 +102,10 @@ print("Extracted features saved to", output_file)
 X = df[['mean', 'std', 'skew']].values
 y = np.array(ground_truth_vector)
 
+# === Standardize features ===
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
 # 2. Initialize the Random Forest Classifier
 clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
 
@@ -109,10 +113,10 @@ clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='ba
 cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
 # Get cross-validated predictions (labels)
-cv_predictions = cross_val_predict(clf, X, y, cv=cv)
+cv_predictions = cross_val_predict(clf, X_scaled, y, cv=cv)
 
 # Get cross-validated predicted probabilities (needed for ROC curve)
-cv_probabilities = cross_val_predict(clf, X, y, cv=cv, method='predict_proba')
+cv_probabilities = cross_val_predict(clf, X_scaled, y, cv=cv, method='predict_proba')
 
 # 4. Compute Precision, Recall, and F1-score
 precision = precision_score(y, cv_predictions, average='weighted')
