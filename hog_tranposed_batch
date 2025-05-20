@@ -1,0 +1,98 @@
+import os
+import cv2
+import numpy as np
+import pandas as pd
+
+folder_path = "C:/Users/anaje/Documents/avcaffe/AVCAffe/codes/downloader/data/videos/per_participant_per_task"
+processed_list_path = "processed_videos_10.txt"
+batch_output_path = "output_data_batch_10.csv"
+batch_size = 100
+frame_sample_rate = 10
+
+hog = cv2.HOGDescriptor()
+data = []
+
+# === Load already processed video IDs ===
+if os.path.exists(processed_list_path):
+    with open(processed_list_path, 'r') as f:
+        processed_videos = set(line.strip() for line in f)
+else:
+    processed_videos = set()
+
+batch_counter = 0
+current_batch = []
+
+# === Video Processing Loop ===
+for root, dirs, files in os.walk(folder_path):
+    for file in files:
+        if not file.endswith('.mp4'):
+            continue
+
+        folder_name = os.path.basename(root)
+        file_name = os.path.basename(file)
+        video_id = f"{folder_name}/{file_name}"
+
+        if video_id in processed_videos:
+            continue  # Skip already processed videos
+
+        video_path = os.path.join(root, file)
+        cap = cv2.VideoCapture(video_path)
+
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        hog_features = []
+
+        for frame_num in range(0, frame_count, frame_sample_rate):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+            ret, frame = cap.read()
+
+            if not ret:
+                break
+
+            frame_resized = cv2.resize(frame, (128, 64))  # Match default HOG winSize
+            frame_transposed = cv2.transpose(frame_resized)
+            gray_frame = cv2.cvtColor(frame_transposed, cv2.COLOR_BGR2GRAY)
+            features = hog.compute(gray_frame)
+            hog_features.append(features.flatten())
+
+        cap.release()
+
+        if hog_features:
+            avg_hog = np.mean(hog_features, axis=0)
+            current_batch.append({'id': video_id, 'hog_features': avg_hog})
+            print(f"Processed: {video_id}, shape: {avg_hog.shape}")
+
+        # === Save progress every batch_size videos ===
+        batch_counter += 1
+        if batch_counter >= batch_size:
+            # Append to existing CSV
+            df_batch = pd.DataFrame(current_batch)
+            if os.path.exists(batch_output_path):
+                df_batch.to_csv(batch_output_path, mode='a', header=False, index=False)
+            else:
+                df_batch.to_csv(batch_output_path, index=False)
+
+            # Update processed list
+            with open(processed_list_path, 'a') as f:
+                for entry in current_batch:
+                    f.write(f"{entry['id']}\n")
+
+            print(f"Saved batch of {batch_counter} videos.")
+            # Reset batch
+            current_batch = []
+            batch_counter = 0
+
+# === Save remaining videos (if any) ===
+if current_batch:
+    df_batch = pd.DataFrame(current_batch)
+    if os.path.exists(batch_output_path):
+        df_batch.to_csv(batch_output_path, mode='a', header=False, index=False)
+    else:
+        df_batch.to_csv(batch_output_path, index=False)
+
+    with open(processed_list_path, 'a') as f:
+        for entry in current_batch:
+            f.write(f"{entry['id']}\n")
+
+    print(f"Saved final batch of {len(current_batch)} videos.")
+
+print("✅ Processing complete.")
