@@ -9,6 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_curve, auc
 from sklearn.metrics import roc_auc_score
 from scipy.stats import skew
+from sklearn.preprocessing import StandardScaler
 
 #ground truth#############################################################
 
