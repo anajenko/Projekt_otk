@@ -1,0 +1,64 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_curve, auc
+import matplotlib.pyplot as plt
+import os
+
+# === Load processed features ===
+feature_file = "output_data_batch_10_crop.csv"
+df = pd.read_csv(feature_file)
+
+# Convert 'hog_features' string to numpy arrays
+df['hog_features'] = df['hog_features'].apply(lambda x: np.fromstring(x.strip('[]'), sep=' '))
+
+# === Load ground truth ===
+ground_truth_path = "C:/Users/anaje/Documents/avcaffe/AVCAffe/codes/downloader/data/ground_truths/frustration.txt"
+ground_truth_vector = []
+
+with open(ground_truth_path, 'r', encoding='utf-8') as f:
+    for line in f:
+        parts = line.strip().split(',')
+        value = float(parts[1])
+        label = 0 if value < 11.0 else 1
+        ground_truth_vector.append(label)
+
+# === Match labels to videos ===
+video_ids = df['id'].tolist()
+X = np.vstack(df['hog_features'].values)
+
+assert len(video_ids) == len(ground_truth_vector), "Mismatch between videos and labels!"
+
+y = np.array(ground_truth_vector)
+
+# === Model Training ===
+clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+cv_predictions = cross_val_predict(clf, X, y, cv=cv)
+cv_probabilities = cross_val_predict(clf, X, y, cv=cv, method='predict_proba')
+
+# === Metrics ===
+precision = precision_score(y, cv_predictions, average='weighted')
+recall = recall_score(y, cv_predictions, average='weighted')
+f1 = f1_score(y, cv_predictions, average='weighted')
+
+print(f"Precision: {precision:.2f}")
+print(f"Recall: {recall:.2f}")
+print(f"F1 Score: {f1:.2f}")
+
+# === ROC Curve ===
+fpr, tpr, _ = roc_curve(y, cv_probabilities[:, 1])
+roc_auc = auc(fpr, tpr)
+
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='blue', lw=2, label=f'ROC AUC = {roc_auc:.2f}')
+plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve - Random Forest (5-Fold CV)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
